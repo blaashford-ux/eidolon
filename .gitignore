@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.wrangler/
+.turbo/
+.DS_Store
+.env
+.env.*
+*.local
+vite.svg

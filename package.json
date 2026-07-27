@@ -1,0 +1,21 @@
+{
+  "name": "eidolon",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm run dev --workspace @eidolon/web\" \"npm run dev --workspace @eidolon/api\"",
+    "dev:web": "npm run dev --workspace @eidolon/web",
+    "dev:api": "npm run dev --workspace @eidolon/api",
+    "build": "npm run build --workspace @eidolon/web && npm run build --workspace @eidolon/api && npm run build --workspace @eidolon/db && npm run build --workspace @eidolon/shared",
+    "check": "npm run check --workspace @eidolon/web && npm run check --workspace @eidolon/api && npm run check --workspace @eidolon/db && npm run check --workspace @eidolon/shared",
+    "db:generate": "npm run db:generate --workspace @eidolon/db",
+    "db:migrate": "npm run db:migrate --workspace @eidolon/db"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  }
+}
