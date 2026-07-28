@@ -7,7 +7,8 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
-    "db:studio": "drizzle-kit studio --config drizzle.config.ts"
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "db:bootstrap": "wrangler d1 execute eidolon-db --remote --file ./bootstrap.sql"
   },
   "dependencies": {
     "drizzle-orm": "^0.44.4"

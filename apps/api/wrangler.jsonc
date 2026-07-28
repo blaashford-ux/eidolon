@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "eidolon-db",
-      "database_id": "REPLACE_WITH_D1_ID"
+      "database_id": "dcfbe2b4-30e0-456b-9b42-407843bb5d23"
     }
   ],
   "r2_buckets": [
@@ -24,7 +24,7 @@
   ],
   "vectorize": [
     {
-      "binding": "VECTOR_INDEX",
+      "binding": "VECTORIZE",
       "index_name": "eidolon-embeddings"
     }
   ],

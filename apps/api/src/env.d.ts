@@ -5,7 +5,7 @@ declare global {
     APP_ENV: string;
     DB: D1Database;
     ASSETS: R2Bucket;
-    VECTOR_INDEX: VectorizeIndex;
+    VECTORIZE: VectorizeIndex;
     AI: Ai;
   }
 }

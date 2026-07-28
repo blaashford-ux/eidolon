@@ -43,9 +43,15 @@ Run these after logging in with Wrangler:
 npx wrangler login
 npx wrangler d1 create eidolon-db
 npx wrangler r2 bucket create eidolon-assets
-npx wrangler vectorize create eidolon-embeddings
+npx wrangler vectorize create eidolon-embeddings --preset @cf/baai/bge-base-en-v1.5 --metric cosine
 ```
 
 Copy the generated IDs into `apps/api/wrangler.jsonc` and add any secrets with `npx wrangler secret put`.
+
+3. Bootstrap the D1 schema:
+
+```bash
+npm run db:bootstrap --workspace @eidolon/db
+```
 
 For the frontend, create a Cloudflare Pages project later and point it at `apps/web`.

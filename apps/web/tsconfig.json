@@ -4,8 +4,7 @@
     "jsx": "react-jsx",
     "types": [
       "vite/client"
-    ],
-    "baseUrl": "."
+    ]
   },
   "include": [
     "src"
