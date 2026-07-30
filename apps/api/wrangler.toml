@@ -1,0 +1,28 @@
+name = "eidolon-api"
+main = "src/index.ts"
+compatibility_date = "2026-07-30"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_ENV = "production"
+FRONTEND_ORIGIN = "https://eidolon.embre.net"
+
+[[routes]]
+pattern = "api.eidolon.embre.net"
+custom_domain = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "eidolon-db"
+database_id = "dcfbe2b4-30e0-456b-9b42-407843bb5d23"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "eidolon-assets"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "eidolon-embeddings"
+
+[ai]
+binding = "AI"

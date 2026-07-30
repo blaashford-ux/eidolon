@@ -43,7 +43,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: deploy --config wrangler.jsonc --name eidolon-api
+          command: deploy --config wrangler.toml
 
       - name: Bootstrap D1 schema
         uses: cloudflare/wrangler-action@v3
@@ -51,4 +51,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: d1 execute eidolon-db --remote --file ../../packages/db/bootstrap.sql --config wrangler.jsonc
+          command: d1 execute eidolon-db --remote --file ../../packages/db/bootstrap.sql --config wrangler.toml
