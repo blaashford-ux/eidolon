@@ -20,6 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
       - name: Checkout
@@ -28,7 +31,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -37,18 +40,16 @@ jobs:
       - name: Type-check API
         run: npm run check --workspace @eidolon/api
 
+      - name: Verify Cloudflare auth and Wrangler
+        working-directory: apps/api
+        run: |
+          npx wrangler --version
+          npx wrangler whoami
+
       - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          command: deploy --config wrangler.toml
+        working-directory: apps/api
+        run: npx wrangler deploy --config wrangler.toml
 
       - name: Bootstrap D1 schema
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          command: d1 execute eidolon-db --remote --file ../../packages/db/bootstrap.sql --config wrangler.toml
+        working-directory: apps/api
+        run: npx wrangler d1 execute eidolon-db --remote --file ../../packages/db/bootstrap.sql --config wrangler.toml
