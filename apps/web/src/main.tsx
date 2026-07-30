@@ -2,11 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ClerkProvider } from '@clerk/clerk-react';
 import App from './App';
-import { CLERK_ENABLED, CLERK_PUBLISHABLE_KEY } from './lib/config';
+import { CLERK_ENABLED, CLERK_PUBLISHABLE_KEY, USE_MSW } from './lib/config';
 import './styles.css';
 
 async function enableMocking() {
-  if (import.meta.env.DEV) {
+  if (import.meta.env.DEV && USE_MSW) {
     const { worker } = await import('./mocks/browser');
     await worker.start({
       onUnhandledRequest: 'bypass'

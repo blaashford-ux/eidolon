@@ -1,6 +1,16 @@
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
+export const users = sqliteTable('users', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  clerkId: text('clerk_id').notNull(),
+  email: text('email').notNull(),
+  displayName: text('display_name').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`)
+}, (table) => ({
+  clerkIdIdx: uniqueIndex('users_clerk_id_idx').on(table.clerkId)
+}));
+
 export const nodeTypes = sqliteTable('node_types', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull()

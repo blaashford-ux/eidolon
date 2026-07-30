@@ -14,6 +14,7 @@
 
 * [Eidolon 6-Phase Vertical Slice Plan](./Eidolon-Phased-Plan.md)
 * [Eidolon Phase Acceptance Criteria](./Eidolon-Phase-Acceptance-Criteria.md)
+* [Eidolon Phase 2 Task Breakdown](./Eidolon-Phase-2-Task-Breakdown.md)
 
 ---
 

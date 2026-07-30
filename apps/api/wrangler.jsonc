@@ -7,8 +7,15 @@
     "nodejs_compat"
   ],
   "vars": {
-    "APP_ENV": "development"
+    "APP_ENV": "production",
+    "FRONTEND_ORIGIN": "https://eidolon.embre.net"
   },
+  "routes": [
+    {
+      "pattern": "api.eidolon.embre.net",
+      "custom_domain": true
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

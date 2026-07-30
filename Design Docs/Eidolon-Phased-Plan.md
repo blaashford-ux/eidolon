@@ -118,3 +118,4 @@ Exit criteria:
 ## Related Planning Documents
 - [Eidolon Phase Acceptance Criteria](./Eidolon-Phase-Acceptance-Criteria.md)
 - [Eidolon Phase-by-Phase Backlog](./Eidolon-Phase-Backlog.md)
+- [Eidolon Phase 2 Task Breakdown](./Eidolon-Phase-2-Task-Breakdown.md)

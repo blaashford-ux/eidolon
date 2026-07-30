@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   clerk_id TEXT NOT NULL UNIQUE,
   email TEXT NOT NULL,
+  display_name TEXT NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
