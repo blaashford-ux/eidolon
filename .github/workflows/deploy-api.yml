@@ -6,10 +6,18 @@ on:
       - main
     paths:
       - apps/api/**
+      - .github/workflows/deploy-api.yml
+      - apps/api/wrangler.toml
       - packages/db/bootstrap.sql
       - package.json
       - package-lock.json
   workflow_dispatch:
+    inputs:
+      bootstrap_d1:
+        description: Run remote D1 bootstrap.sql after deploy
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-api-main
@@ -50,6 +58,7 @@ jobs:
         working-directory: apps/api
         run: npx wrangler deploy --config wrangler.toml
 
-      - name: Bootstrap D1 schema
+      - name: Bootstrap D1 schema (optional)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_d1 }}
         working-directory: apps/api
         run: npx wrangler d1 execute eidolon-db --remote --file ../../packages/db/bootstrap.sql --config wrangler.toml
