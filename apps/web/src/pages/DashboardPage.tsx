@@ -43,10 +43,10 @@ export function DashboardPage() {
   return (
     <section className="grid gap-6">
       <article className="panel">
-        <h2 className="panel-title">Phase 2 Objective</h2>
+        <h2 className="panel-title">Phase 3 Objective</h2>
         <p className="panel-copy">
-          Run core contributor and reader flows against the live Worker API and D1 persistence while preserving
-          graceful fallback routes for not-yet-implemented advanced capabilities.
+          Run core contributor and reader flows against the live Worker API, D1 persistence, and incremental graph
+          exploration while preserving graceful fallback routes for not-yet-implemented advanced capabilities.
         </p>
       </article>
 

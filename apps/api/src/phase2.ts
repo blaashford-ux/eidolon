@@ -21,6 +21,45 @@ const seedAuthorityProfiles = [
   }
 ] as const;
 
+const seedGraphTopics = [
+  {
+    title: 'Writing Craft',
+    description: 'Pacing, scene construction, and prose-level craft guidance.'
+  },
+  {
+    title: 'Reader Psychology',
+    description: 'Retention, payoff, and expectation-setting patterns.'
+  },
+  {
+    title: 'Marketing',
+    description: 'Discovery, positioning, and conversion tactics.'
+  },
+  {
+    title: 'Rapid Release',
+    description: 'Cadence, iteration, and launch rhythm strategies.'
+  },
+  {
+    title: 'Cover Design',
+    description: 'Visual hierarchy and genre signaling on covers.'
+  },
+  {
+    title: 'Pacing',
+    description: 'Rhythm, tension, and momentum in long-form fiction.'
+  },
+  {
+    title: 'Series Planning',
+    description: 'Planning promise, payoff, and installment structure.'
+  },
+  {
+    title: 'Blurbs',
+    description: 'Short-form packaging and conversion copy.'
+  },
+  {
+    title: 'Genre Signaling',
+    description: 'Instant recognition cues for readers and ads.'
+  }
+] as const;
+
 const seedSubmissions = [
   {
     title: 'Reader forgiveness on pacing dips in long series',
@@ -219,11 +258,34 @@ async function seedKnowledgeChunksIfNeeded(db: D1Database): Promise<void> {
   }
 }
 
+async function seedGraphTopicsIfNeeded(db: D1Database): Promise<void> {
+  const count = await db.prepare('SELECT COUNT(*) AS count FROM topics').first<{ count: number }>();
+  if ((count?.count || 0) > 0) {
+    return;
+  }
+
+  const nodeTypeId = await getNodeTypeId(db, 'TOPIC');
+
+  for (const topic of seedGraphTopics) {
+    const nodeResult = await db
+      .prepare('INSERT INTO nodes (node_type_id, title, summary) VALUES (?, ?, ?)')
+      .bind(nodeTypeId, topic.title, topic.description)
+      .run();
+    const nodeId = nodeResult.meta.last_row_id as number;
+
+    await db
+      .prepare('INSERT INTO topics (node_id, description) VALUES (?, ?)')
+      .bind(nodeId, topic.description)
+      .run();
+  }
+}
+
 export async function ensurePhase2Data(db: D1Database): Promise<void> {
   phase2Ready ??= (async () => {
     await ensureUsersDisplayName(db);
     await seedAuthorityProfilesIfNeeded(db);
     await seedKnowledgeChunksIfNeeded(db);
+    await seedGraphTopicsIfNeeded(db);
   })();
 
   await phase2Ready;
@@ -231,10 +293,282 @@ export async function ensurePhase2Data(db: D1Database): Promise<void> {
 
 export async function getCapabilities() {
   return {
-    graph: false,
+    graph: true,
     semanticSearch: false,
     moderationAutomation: false,
     synthesis: false
+  };
+}
+
+function parseGraphNodeId(rawId: string): { kind: 'topic' | 'chunk' | 'authority'; nodeId: number } | null {
+  const match = rawId.match(/^(topic|sub|auth)-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    kind: match[1] === 'sub' ? 'chunk' : match[1] === 'auth' ? 'authority' : 'topic',
+    nodeId: Number.parseInt(match[2] ?? '', 10)
+  };
+}
+
+export async function listGraphTopics(db: D1Database, page: number, pageSize: number) {
+  const offset = (page - 1) * pageSize;
+
+  const total = await db.prepare('SELECT COUNT(*) AS total FROM topics').first<{ total: number }>();
+  const rows = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        n.summary AS summary,
+        COUNT(DISTINCT nt.node_id) AS chunkCount
+      FROM topics tp
+      JOIN nodes n ON n.id = tp.node_id
+      LEFT JOIN tags t ON t.name = n.title
+      LEFT JOIN node_tags nt ON nt.tag_id = t.id
+      GROUP BY n.id
+      ORDER BY chunkCount DESC, n.title COLLATE NOCASE
+      LIMIT ? OFFSET ?`
+    )
+    .bind(pageSize, offset)
+    .all<{ nodeId: number; title: string; summary: string | null; chunkCount: number }>();
+
+  return {
+    nodes: rows.results.map((row) => ({
+      id: prefixedId('topic', row.nodeId),
+      role: 'topic' as const,
+      title: row.title,
+      summary: row.summary || 'Topic entry point',
+      subtitle: `${row.chunkCount} linked chunk${row.chunkCount === 1 ? '' : 's'}`,
+      expandable: true,
+      chunkCount: row.chunkCount,
+      kind: 'topic' as const
+    })),
+    edges: [],
+    pagination: {
+      page,
+      pageSize,
+      total: total?.total || 0
+    }
+  };
+}
+
+async function expandTopicNode(db: D1Database, nodeId: number, limit: number) {
+  const topic = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        n.summary AS summary
+      FROM topics tp
+      JOIN nodes n ON n.id = tp.node_id
+      WHERE n.id = ?`
+    )
+    .bind(nodeId)
+    .first<{ nodeId: number; title: string; summary: string | null }>();
+
+  if (!topic) {
+    return null;
+  }
+
+  const rows = await db
+    .prepare(
+      `SELECT DISTINCT
+        n.id AS nodeId,
+        n.title AS title,
+        COALESCE(n.summary, substr(k.content, 1, 180)) AS summary,
+        k.source_type AS sourceType,
+        COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
+        COALESCE(ap.authority_level, 'Unknown') AS authorityLevel
+      FROM nodes n
+      JOIN knowledge_chunks k ON k.node_id = n.id
+      JOIN node_tags nt ON nt.node_id = n.id
+      JOIN tags t ON t.id = nt.tag_id
+      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
+      WHERE t.name = ?
+      ORDER BY n.created_at DESC, n.id DESC
+      LIMIT ?`
+    )
+    .bind(topic.title, limit)
+    .all<{
+      nodeId: number;
+      title: string;
+      summary: string;
+      sourceType: string;
+      attributedAuthority: string;
+      authorityLevel: string;
+    }>();
+
+  const nodes = rows.results.map((row, index) => ({
+    id: prefixedId('sub', row.nodeId),
+    role: 'chunk' as const,
+    title: row.title,
+    summary: row.summary,
+    subtitle: `${row.sourceType} • ${row.attributedAuthority}`,
+    expandable: true,
+    parentId: prefixedId('topic', nodeId),
+    kind: 'chunk' as const,
+    sourceType: row.sourceType,
+    attributedAuthority: row.attributedAuthority,
+    authorityLevel: row.authorityLevel,
+    siblingIndex: index
+  }));
+
+  return {
+    nodes,
+    edges: nodes.map((child) => ({
+      id: `edge-${prefixedId('topic', nodeId)}-${child.id}`,
+      source: prefixedId('topic', nodeId),
+      target: child.id,
+      relationshipType: 'RELATED'
+    })),
+    centerId: prefixedId('topic', nodeId)
+  };
+}
+
+async function expandChunkNode(db: D1Database, nodeId: number, limit: number, excludeTopicNodeId?: number | null) {
+  const chunk = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        COALESCE(n.summary, substr(k.content, 1, 180)) AS summary,
+        k.source_type AS sourceType,
+        COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
+        COALESCE(ap.authority_level, 'Unknown') AS authorityLevel,
+        COALESCE(ap.claimed, 0) AS authorityClaimed
+      FROM nodes n
+      JOIN knowledge_chunks k ON k.node_id = n.id
+      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
+      WHERE n.id = ?`
+    )
+    .bind(nodeId)
+    .first<{
+      nodeId: number;
+      title: string;
+      summary: string | null;
+      sourceType: string;
+      attributedAuthority: string;
+      authorityLevel: string;
+      authorityClaimed: number;
+    }>();
+
+  if (!chunk) {
+    return null;
+  }
+
+  const authority = await db
+    .prepare(
+      `SELECT
+        ap.node_id AS nodeId,
+        ap.display_name AS displayName,
+        ap.authority_level AS authorityLevel,
+        ap.claimed AS claimed,
+        COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS topics
+      FROM knowledge_chunks k
+      JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
+      LEFT JOIN node_tags nt ON nt.node_id = ap.node_id
+      LEFT JOIN tags t ON t.id = nt.tag_id
+      WHERE k.node_id = ?
+      GROUP BY ap.node_id`
+    )
+    .bind(nodeId)
+    .first<{ nodeId: number; displayName: string; authorityLevel: string; claimed: number; topics: string }>();
+
+  const relatedTopicRows = await db
+    .prepare(
+      `SELECT DISTINCT
+        n.id AS nodeId,
+        n.title AS title,
+        n.summary AS summary
+      FROM node_tags nt
+      JOIN tags t ON t.id = nt.tag_id
+      JOIN nodes n ON n.title = t.name
+      JOIN topics tp ON tp.node_id = n.id
+      WHERE nt.node_id = ?
+        AND n.id != ?
+      ORDER BY n.title COLLATE NOCASE
+      LIMIT ?`
+    )
+    .bind(nodeId, excludeTopicNodeId || -1, limit)
+    .all<{ nodeId: number; title: string; summary: string | null }>();
+
+  const nodes = [
+    ...(authority
+      ? [
+          {
+            id: prefixedId('auth', authority.nodeId),
+            role: 'authority' as const,
+            title: authority.displayName,
+            summary: `Authority level: ${authority.authorityLevel}`,
+            subtitle: authority.claimed ? 'Claimed profile' : 'Unclaimed profile',
+            expandable: false,
+            parentId: prefixedId('sub', nodeId),
+            kind: 'authority' as const,
+            authorityLevel: authority.authorityLevel,
+            claimed: !!authority.claimed,
+            topics: splitCsv(authority.topics)
+          }
+        ]
+      : []),
+    ...relatedTopicRows.results.map((row, index) => ({
+      id: prefixedId('topic', row.nodeId),
+      role: 'related-topic' as const,
+      title: row.title,
+      summary: row.summary || 'Related topic',
+      subtitle: 'Shared topic tag',
+      expandable: true,
+      parentId: prefixedId('sub', nodeId),
+      kind: 'topic' as const,
+      siblingIndex: index
+    }))
+  ];
+
+  const edges = [
+    ...(authority
+      ? [
+          {
+            id: `edge-${prefixedId('sub', nodeId)}-${prefixedId('auth', authority.nodeId)}`,
+            source: prefixedId('sub', nodeId),
+            target: prefixedId('auth', authority.nodeId),
+            relationshipType: 'DERIVED_FROM' as const
+          }
+        ]
+      : []),
+    ...relatedTopicRows.results.map((row) => ({
+      id: `edge-${prefixedId('sub', nodeId)}-${prefixedId('topic', row.nodeId)}`,
+      source: prefixedId('sub', nodeId),
+      target: prefixedId('topic', row.nodeId),
+      relationshipType: 'RELATED' as const
+    }))
+  ];
+
+  return {
+    nodes,
+    edges,
+    centerId: prefixedId('sub', nodeId)
+  };
+}
+
+export async function expandGraphNode(db: D1Database, rawId: string, limit: number, excludeTopicNodeId?: number | null) {
+  const parsed = parseGraphNodeId(rawId);
+  if (!parsed) {
+    return null;
+  }
+
+  if (parsed.kind === 'topic') {
+    return expandTopicNode(db, parsed.nodeId, limit);
+  }
+
+  if (parsed.kind === 'chunk') {
+    return expandChunkNode(db, parsed.nodeId, limit, excludeTopicNodeId);
+  }
+
+  return {
+    nodes: [],
+    edges: [],
+    centerId: prefixedId('auth', parsed.nodeId)
   };
 }
 

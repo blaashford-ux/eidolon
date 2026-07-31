@@ -62,6 +62,7 @@ export default function App() {
               }
               path="graph"
             />
+            <Route element={<Navigate replace to="/graph" />} path="features/graph-expansion" />
 
           <Route
             element={

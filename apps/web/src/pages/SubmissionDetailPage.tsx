@@ -60,8 +60,8 @@ export function SubmissionDetailPage() {
         <Link className="btn-secondary" to="/features/semantic-ranking">
           View semantic ranking preview
         </Link>
-        <Link className="btn-secondary" to="/features/graph-expansion">
-          Open graph expansion preview
+        <Link className="btn-secondary" to="/graph">
+          Open graph explorer
         </Link>
       </div>
     </section>

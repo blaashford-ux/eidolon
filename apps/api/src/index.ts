@@ -10,6 +10,8 @@ import {
   getModerationQueue,
   getSubmission,
   getAuthorityProfile,
+  expandGraphNode,
+  listGraphTopics,
   listAuthorityProfiles,
   listSubmissions,
   searchBaseline
@@ -158,6 +160,26 @@ app.get('/api/search', async (c) => {
   const page = parsePage(c.req.query('page'), 1);
   const pageSize = Math.min(parsePage(c.req.query('pageSize'), 10), 50);
   return c.json(await searchBaseline(c.env.DB, query, page, pageSize));
+});
+
+app.get('/api/graph/topics', async (c) => {
+  await ensurePhase2Data(c.env.DB);
+  const page = parsePage(c.req.query('page'), 1);
+  const pageSize = Math.min(parsePage(c.req.query('pageSize'), 6), 24);
+  return c.json(await listGraphTopics(c.env.DB, page, pageSize));
+});
+
+app.get('/api/graph/nodes/:id/expand', async (c) => {
+  await ensurePhase2Data(c.env.DB);
+  const limit = Math.min(parsePage(c.req.query('limit'), 6), 20);
+  const excludeTopicNodeId = c.req.query('excludeTopicNodeId') ? Number.parseInt(c.req.query('excludeTopicNodeId') || '', 10) : null;
+  const graph = await expandGraphNode(c.env.DB, c.req.param('id'), limit, Number.isFinite(excludeTopicNodeId || NaN) ? excludeTopicNodeId : null);
+
+  if (!graph) {
+    return c.json({ message: 'Graph node not found.' }, 404);
+  }
+
+  return c.json(graph);
 });
 
 app.get('/api/moderation/queue', async (c) => {
