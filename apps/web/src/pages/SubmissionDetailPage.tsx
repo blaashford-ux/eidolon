@@ -58,10 +58,10 @@ export function SubmissionDetailPage() {
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Link className="btn-secondary" to="/features/semantic-ranking">
-          View semantic ranking placeholder
+          View semantic ranking preview
         </Link>
         <Link className="btn-secondary" to="/features/graph-expansion">
-          Open graph expansion placeholder
+          Open graph expansion preview
         </Link>
       </div>
     </section>

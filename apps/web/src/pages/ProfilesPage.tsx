@@ -56,7 +56,7 @@ export function ProfilesPage() {
     <section className="grid gap-4">
       <article className="panel">
         <h2 className="panel-title">Authority profiles</h2>
-        <p className="panel-copy">Claim and inspect authority identities in a route-guarded mock flow.</p>
+        <p className="panel-copy">Claim and inspect authority identities in a route-guarded live flow.</p>
         {error ? <p className="mt-2 text-sm text-rose-300">{error}</p> : null}
       </article>
 

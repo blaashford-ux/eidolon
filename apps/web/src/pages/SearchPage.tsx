@@ -37,7 +37,7 @@ export function SearchPage() {
     <section className="grid gap-4">
       <article className="panel">
         <h2 className="panel-title">Reader search</h2>
-        <p className="panel-copy">Mode: {mode}. Semantic mode is intentionally placeholder in Phase 1.</p>
+        <p className="panel-copy">Mode: {mode}. Semantic ranking remains in preview until Phase 4.</p>
 
         <form className="mt-4 flex gap-3" onSubmit={onSubmit}>
           <input
@@ -61,7 +61,7 @@ export function SearchPage() {
       ) : loading ? (
         <article className="panel text-muted">Searching baseline index...</article>
       ) : items.length === 0 ? (
-        <EmptyBlock detail="No results matched this query in the baseline contract dataset." title="No search results" />
+        <EmptyBlock detail="No results matched this query in the current baseline dataset." title="No search results" />
       ) : (
         items.map((item) => (
           <article key={item.id} className="panel">
@@ -75,7 +75,7 @@ export function SearchPage() {
                 Open source detail
               </Link>
               <Link className="btn-secondary" to="/features/semantic-search">
-                Semantic placeholder
+                Semantic preview
               </Link>
             </div>
           </article>

@@ -13,12 +13,12 @@ const cards = [
   },
   {
     title: 'Reader',
-    copy: 'Search and inspect source-backed entries with placeholder semantic cues.',
+    copy: 'Search and inspect source-backed entries with baseline and semantic-mode indicators.',
     to: '/search'
   },
   {
     title: 'Curator',
-    copy: 'Practice moderation queue actions with explicit placeholder quality checks.',
+    copy: 'Review moderation queue actions with explicit quality and duplicate-check hints.',
     to: '/moderation'
   },
   {
@@ -43,23 +43,23 @@ export function DashboardPage() {
   return (
     <section className="grid gap-6">
       <article className="panel">
-        <h2 className="panel-title">Phase 1 Objective</h2>
+        <h2 className="panel-title">Phase 2 Objective</h2>
         <p className="panel-copy">
-          Deliver full UI and UX with real Clerk authentication and MSW API contracts before backend wiring.
-          Every unfinished capability should route to an explanatory placeholder instead of breaking.
+          Run core contributor and reader flows against the live Worker API and D1 persistence while preserving
+          graceful fallback routes for not-yet-implemented advanced capabilities.
         </p>
       </article>
 
-      {loadingCaps ? <LoadingBlock detail="Checking feature capabilities from the mock contract." title="Capabilities" /> : null}
+      {loadingCaps ? <LoadingBlock detail="Checking feature capabilities from the live API." title="Capabilities" /> : null}
       {!loadingCaps && capError ? <ErrorBlock detail={capError} title="Could not load capabilities" /> : null}
       {!loadingCaps && !capError && caps ? (
         <article className="panel">
           <h3 className="text-lg font-semibold text-white">Current capability matrix</h3>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <p className="text-sm text-muted">Graph runtime: {caps.graph ? 'Enabled' : 'Placeholder mode'}</p>
-            <p className="text-sm text-muted">Semantic search: {caps.semanticSearch ? 'Enabled' : 'Placeholder mode'}</p>
-            <p className="text-sm text-muted">Moderation automation: {caps.moderationAutomation ? 'Enabled' : 'Manual mock mode'}</p>
-            <p className="text-sm text-muted">Synthesis: {caps.synthesis ? 'Enabled' : 'Placeholder mode'}</p>
+            <p className="text-sm text-muted">Graph runtime: {caps.graph ? 'Enabled' : 'Planned mode'}</p>
+            <p className="text-sm text-muted">Semantic search: {caps.semanticSearch ? 'Enabled' : 'Planned mode'}</p>
+            <p className="text-sm text-muted">Moderation automation: {caps.moderationAutomation ? 'Enabled' : 'Manual mode'}</p>
+            <p className="text-sm text-muted">Synthesis: {caps.synthesis ? 'Enabled' : 'Planned mode'}</p>
           </div>
         </article>
       ) : null}

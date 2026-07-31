@@ -29,7 +29,7 @@ export function AppLayout() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-10">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-muted">Eidolon</p>
-            <h1 className="text-xl font-semibold text-white">Phase 1 UX Sandbox</h1>
+            <h1 className="text-xl font-semibold text-white">Phase 2 Runtime</h1>
           </div>
 
           <button

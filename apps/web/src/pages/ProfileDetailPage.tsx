@@ -60,7 +60,7 @@ export function ProfileDetailPage() {
   }
 
   if (!profile) {
-    return <EmptyBlock detail="This authority profile could not be found in the current mock dataset." title="Profile not found" />;
+    return <EmptyBlock detail="This authority profile could not be found in the current dataset." title="Profile not found" />;
   }
 
   return (
@@ -73,7 +73,7 @@ export function ProfileDetailPage() {
       </article>
 
       <article className="panel">
-        <h3 className="text-lg font-semibold text-white">Endorsement history (mock)</h3>
+        <h3 className="text-lg font-semibold text-white">Endorsement history</h3>
         {endorsements.length ? (
           <div className="mt-4 grid gap-3">
             {endorsements.map((item) => (
@@ -86,11 +86,11 @@ export function ProfileDetailPage() {
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-muted">No endorsement actions are available yet for this persona in mock data.</p>
+          <p className="mt-4 text-sm text-muted">No endorsement actions are available yet for this persona in the current dataset.</p>
         )}
         <div className="mt-4">
           <Link className="btn-secondary" to="/features/endorsement-audit-export">
-            Export audit placeholder
+            Export audit preview
           </Link>
         </div>
       </article>

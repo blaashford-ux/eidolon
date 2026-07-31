@@ -149,7 +149,7 @@ function SubmissionFormContent({ contributorName }: SubmissionFormContentProps) 
   return (
     <section className="panel">
       <h2 className="panel-title">New knowledge submission</h2>
-      <p className="panel-copy">Phase 1 uses MSW contracts to simulate backend behavior and validation.</p>
+      <p className="panel-copy">Phase 2 writes submissions to the live API and D1-backed persistence.</p>
 
       <form className="mt-6 grid gap-4" onSubmit={onSubmit}>
         <label className="field-label">

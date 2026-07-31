@@ -42,7 +42,7 @@ export function ModerationQueuePage() {
     <section className="grid gap-4">
       <article className="panel">
         <h2 className="panel-title">Curation moderation queue</h2>
-        <p className="panel-copy">Use this flow to test status filters, action states, and duplicate-check placeholders.</p>
+        <p className="panel-copy">Use this flow to exercise status filters, action states, and duplicate-check guidance.</p>
       </article>
 
       {items.map((item) => (

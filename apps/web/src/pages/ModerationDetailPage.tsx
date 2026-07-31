@@ -40,7 +40,7 @@ export function ModerationDetailPage() {
     try {
       const result = await apiPost<{ ok: boolean; item: ModerationItem }>(`/api/moderation/${id}/${action}`, {});
       setItem(result.item);
-      setMessage(action === 'approve' ? 'Item approved in mock queue.' : 'Item rejected in mock queue.');
+      setMessage(action === 'approve' ? 'Item approved in moderation queue.' : 'Item rejected in moderation queue.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed.');
     } finally {
