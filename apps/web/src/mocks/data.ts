@@ -41,7 +41,8 @@ export const searchResults: SearchResult[] = submissions.map((item) => ({
   title: item.title,
   snippet: item.summary || item.content,
   sourceType: item.sourceType,
-  attributedAuthority: item.attributedAuthority
+  attributedAuthority: item.attributedAuthority,
+  kind: 'chunk'
 }));
 
 export const moderationItems: ModerationItem[] = [

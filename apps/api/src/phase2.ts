@@ -152,6 +152,57 @@ function splitCsv(value: string | null): string[] {
   return value ? value.split(',').map((part) => part.trim()).filter(Boolean) : [];
 }
 
+function tokenizeQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+}
+
+function normalizedText(...values: Array<string | null | undefined>): string {
+  return values.filter(Boolean).join(' ').toLowerCase();
+}
+
+function lexicalScore(text: string, tokens: string[]): number {
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  let score = 0;
+  for (const token of tokens) {
+    if (text.includes(token)) {
+      score += 1;
+    }
+  }
+
+  if (tokens.length > 1) {
+    const phrase = tokens.join(' ');
+    if (text.includes(phrase)) {
+      score += tokens.length;
+    }
+  }
+
+  return score;
+}
+
+type SearchResultKind = 'chunk' | 'topic';
+
+interface SearchCandidate {
+  id: string;
+  title: string;
+  snippet: string;
+  sourceType: string;
+  attributedAuthority: string;
+  kind: SearchResultKind;
+  authorityLevel?: string;
+  lexicalScore: number;
+}
+
+function compact<T>(values: Array<T | null | undefined>): T[] {
+  return values.filter((value): value is T => value != null);
+}
+
 function isEnabled(value: string | undefined, fallback = true): boolean {
   if (value === undefined) {
     return fallback;
@@ -552,6 +603,95 @@ export async function getCapabilities(env?: Partial<Env>) {
     moderationAutomation: false,
     synthesis: false
   };
+}
+
+async function searchNodeCandidates(db: D1Database, query: string): Promise<SearchCandidate[]> {
+  const tokens = tokenizeQuery(query);
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const chunkRows = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        COALESCE(n.summary, substr(k.content, 1, 180)) AS snippet,
+        k.source_type AS sourceType,
+        COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
+        COALESCE(ap.authority_level, 'Novice') AS authorityLevel,
+        COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS tags,
+        COALESCE(tp.description, '') AS topicDescription
+      FROM nodes n
+      JOIN knowledge_chunks k ON k.node_id = n.id
+      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
+      LEFT JOIN node_tags nt ON nt.node_id = n.id
+      LEFT JOIN tags t ON t.id = nt.tag_id
+      LEFT JOIN topics tp ON tp.node_id = n.id
+      GROUP BY n.id`
+    )
+    .all<{
+      nodeId: number;
+      title: string;
+      snippet: string;
+      sourceType: string;
+      attributedAuthority: string;
+      authorityLevel: string;
+      tags: string;
+      topicDescription: string;
+    }>();
+
+  const topicRows = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        COALESCE(tp.description, n.summary, 'Topic entry point') AS snippet
+      FROM topics tp
+      JOIN nodes n ON n.id = tp.node_id`
+    )
+    .all<{ nodeId: number; title: string; snippet: string }>();
+
+  const chunkCandidates = chunkRows.results
+    .map((row) => {
+      const text = normalizedText(row.title, row.snippet, row.sourceType, row.attributedAuthority, row.tags, row.topicDescription);
+      const score = lexicalScore(text, tokens);
+      if (score === 0) {
+        return null;
+      }
+
+      return {
+        id: prefixedId('sub', row.nodeId),
+        title: row.title,
+        snippet: row.snippet,
+        sourceType: row.sourceType,
+        attributedAuthority: row.attributedAuthority,
+        kind: 'chunk' as const,
+        authorityLevel: row.authorityLevel,
+        lexicalScore: score
+      } satisfies SearchCandidate;
+    });
+
+  const topicCandidates = topicRows.results
+    .map((row) => {
+      const text = normalizedText(row.title, row.snippet);
+      const score = lexicalScore(text, tokens);
+      if (score === 0) {
+        return null;
+      }
+
+      return {
+        id: prefixedId('topic', row.nodeId),
+        title: row.title,
+        snippet: row.snippet,
+        sourceType: 'topic',
+        attributedAuthority: '',
+        kind: 'topic' as const,
+        lexicalScore: score
+      } satisfies SearchCandidate;
+    });
+
+  return compact([...chunkCandidates, ...topicCandidates]);
 }
 
 function parseGraphNodeId(rawId: string): { kind: 'topic' | 'chunk' | 'authority'; nodeId: number } | null {
@@ -1051,70 +1191,39 @@ export async function getSubmission(db: D1Database, rawId: string) {
 }
 
 export async function searchBaseline(db: D1Database, query: string, page: number, pageSize: number) {
-  const needle = query.trim().toLowerCase();
+  const needle = query.trim();
   const offset = (page - 1) * pageSize;
 
-  const where = needle
-    ? `WHERE lower(n.title) LIKE ? OR lower(k.content) LIKE ? OR lower(k.source_type) LIKE ? OR lower(COALESCE(u.display_name, '')) LIKE ? OR lower(COALESCE(ap.display_name, '')) LIKE ? OR EXISTS (
-        SELECT 1
-        FROM node_tags nt2
-        JOIN tags t2 ON t2.id = nt2.tag_id
-        WHERE nt2.node_id = n.id AND lower(t2.name) LIKE ?
-      )`
-    : '';
+  const candidates = needle ? await searchNodeCandidates(db, needle) : [];
+  const ordered = candidates.sort((a, b) => {
+    if (b.lexicalScore !== a.lexicalScore) {
+      return b.lexicalScore - a.lexicalScore;
+    }
 
-  const bindings = needle
-    ? Array(6).fill(`%${needle}%`)
-    : [];
+    if (a.kind !== b.kind) {
+      return a.kind === 'topic' ? -1 : 1;
+    }
 
-  const countQuery = await db
-    .prepare(
-      `SELECT COUNT(DISTINCT n.id) AS total
-      FROM nodes n
-      JOIN knowledge_chunks k ON k.node_id = n.id
-      LEFT JOIN users u ON u.id = k.contributor_user_id
-      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
-      ${where}`
-    )
-    .bind(...bindings)
-    .first<{ total: number }>();
+    return a.title.localeCompare(b.title);
+  });
 
-  const rows = await db
-    .prepare(
-      `SELECT DISTINCT
-        n.id AS nodeId,
-        n.title AS title,
-        COALESCE(n.summary, substr(k.content, 1, 180)) AS snippet,
-        k.source_type AS sourceType,
-        COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
-        COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS tags
-      FROM nodes n
-      JOIN knowledge_chunks k ON k.node_id = n.id
-      LEFT JOIN users u ON u.id = k.contributor_user_id
-      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
-      LEFT JOIN node_tags nt ON nt.node_id = n.id
-      LEFT JOIN tags t ON t.id = nt.tag_id
-      ${where}
-      GROUP BY n.id
-      ORDER BY n.created_at DESC, n.id DESC
-      LIMIT ? OFFSET ?`
-    )
-    .bind(...bindings, pageSize, offset)
-    .all<{ nodeId: number; title: string; snippet: string; sourceType: string; attributedAuthority: string; tags: string }>();
+  const total = ordered.length;
+  const rows = ordered.slice(offset, offset + pageSize);
 
   return {
     mode: 'baseline' as const,
-    results: rows.results.map((row) => ({
-      id: prefixedId('sub', row.nodeId),
+    results: rows.map((row) => ({
+      id: row.id,
       title: row.title,
       snippet: row.snippet,
       sourceType: row.sourceType,
-      attributedAuthority: row.attributedAuthority
+      attributedAuthority: row.attributedAuthority,
+      kind: row.kind
     })),
     pagination: {
       page,
       pageSize,
-      total: countQuery?.total || 0
+      total
     }
   };
 }
@@ -1161,76 +1270,94 @@ async function searchSemantic(
     scoreByNode.set(parsedId, match.score);
   }
 
-  if (rankedIds.length === 0) {
+  const lexicalCandidates = await searchNodeCandidates(db, query);
+
+  const chunkRows = rankedIds.length > 0
+    ? await db
+        .prepare(
+          `SELECT
+            n.id AS nodeId,
+            n.title AS title,
+            COALESCE(n.summary, substr(k.content, 1, 180)) AS snippet,
+            k.source_type AS sourceType,
+            COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
+            COALESCE(ap.authority_level, 'Novice') AS authorityLevel,
+            COALESCE(GROUP_CONCAT(DISTINCT t.name), '') AS tags,
+            COALESCE(tp.description, '') AS topicDescription
+          FROM nodes n
+          JOIN knowledge_chunks k ON k.node_id = n.id
+          LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
+          LEFT JOIN node_tags nt ON nt.node_id = n.id
+          LEFT JOIN tags t ON t.id = nt.tag_id
+          LEFT JOIN topics tp ON tp.node_id = n.id
+          WHERE n.id IN (${rankedIds.map(() => '?').join(', ')})
+          GROUP BY n.id`
+        )
+        .bind(...rankedIds)
+        .all<{
+          nodeId: number;
+          title: string;
+          snippet: string;
+          sourceType: string;
+          attributedAuthority: string;
+          authorityLevel: string;
+          tags: string;
+          topicDescription: string;
+        }>()
+    : { results: [] as Array<{ nodeId: number; title: string; snippet: string; sourceType: string; attributedAuthority: string; authorityLevel: string; tags: string; topicDescription: string }> };
+
+  const chunkScored = chunkRows.results.map((row) => {
+    const rawScore = scoreByNode.get(row.nodeId) || 0;
+    const combinedLexical = lexicalScore(normalizedText(row.title, row.snippet, row.sourceType, row.attributedAuthority, row.tags, row.topicDescription), tokenizeQuery(query));
+    const weighted = rawScore * authorityWeight(row.authorityLevel) + combinedLexical * 2;
     return {
-      mode: 'semantic' as const,
-      results: [] as Array<{ id: string; title: string; snippet: string; sourceType: string; attributedAuthority: string }>,
-      pagination: {
-        page,
-        pageSize,
-        total: 0
-      }
-    };
-  }
-
-  const placeholders = rankedIds.map(() => '?').join(', ');
-  const rows = await db
-    .prepare(
-      `SELECT
-        n.id AS nodeId,
-        n.title AS title,
-        COALESCE(n.summary, substr(k.content, 1, 180)) AS snippet,
-        k.source_type AS sourceType,
-        COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
-        COALESCE(ap.authority_level, 'Novice') AS authorityLevel
-      FROM nodes n
-      JOIN knowledge_chunks k ON k.node_id = n.id
-      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
-      WHERE n.id IN (${placeholders})`
-    )
-    .bind(...rankedIds)
-    .all<{
-      nodeId: number;
-      title: string;
-      snippet: string;
-      sourceType: string;
-      attributedAuthority: string;
-      authorityLevel: string;
-    }>();
-
-  const rank = new Map<number, number>();
-  rankedIds.forEach((id, index) => rank.set(id, index));
-
-  const ordered = rows.results
-    .map((row) => {
-      const rawScore = scoreByNode.get(row.nodeId) || 0;
-      const weighted = rawScore * authorityWeight(row.authorityLevel);
-      return {
-        ...row,
-        weighted,
-        semanticRank: rank.get(row.nodeId) ?? Number.MAX_SAFE_INTEGER
-      };
-    })
-    .sort((a, b) => {
-      if (b.weighted !== a.weighted) {
-        return b.weighted - a.weighted;
-      }
-
-      return a.semanticRank - b.semanticRank;
-    });
-
-  const total = ordered.length;
-  const offset = (page - 1) * pageSize;
-  const paged = ordered.slice(offset, offset + pageSize);
-
-  return {
-    mode: 'semantic' as const,
-    results: paged.map((row) => ({
       id: prefixedId('sub', row.nodeId),
       title: row.title,
       snippet: row.snippet,
       sourceType: row.sourceType,
-      attributedAuthority: row.attributedAuthority
+      attributedAuthority: row.attributedAuthority,
+      kind: 'chunk' as const,
+      lexicalScore: combinedLexical,
+      score: weighted
+    } satisfies SearchCandidate & { score: number };
+  }).filter((candidate) => candidate.lexicalScore > 0 || (scoreByNode.get(Number.parseInt(candidate.id.replace(/^sub-/, ''), 10)) || 0) >= 0.78);
+
+  const topicScored = lexicalCandidates
+    .filter((candidate) => candidate.kind === 'topic')
+    .map((candidate) => ({
+      ...candidate,
+      score: candidate.lexicalScore * 10
+    }));
+
+  const merged = [...chunkScored, ...topicScored]
+    .map((candidate) => ({
+      ...candidate,
+      score: candidate.score + (candidate.id.startsWith('sub-') ? (scoreByNode.get(Number.parseInt(candidate.id.replace(/^sub-/, ''), 10)) || 0) * 10 : 0)
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      if (a.kind !== b.kind) {
+        return a.kind === 'topic' ? -1 : 1;
+      }
+      return a.title.localeCompare(b.title);
+    });
+
+  const total = merged.length;
+  const offset = (page - 1) * pageSize;
+  const paged = merged.slice(offset, offset + pageSize);
+
+  return {
+    mode: 'semantic' as const,
+    results: paged.map((row) => ({
+      id: row.id,
+      title: row.title,
+      snippet: row.snippet,
+      sourceType: row.sourceType,
+      attributedAuthority: row.attributedAuthority,
+      kind: row.kind
     })),
     pagination: {
       page,

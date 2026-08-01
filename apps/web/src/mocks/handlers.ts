@@ -106,6 +106,33 @@ const graphTopicExpansions: Record<string, Array<{ id: string; title: string; su
   ]
 };
 
+function tokenizeQuery(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+}
+
+function textScore(text: string, tokens: string[]): number {
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  let score = 0;
+  for (const token of tokens) {
+    if (text.includes(token)) {
+      score += 1;
+    }
+  }
+
+  if (tokens.length > 1 && text.includes(tokens.join(' '))) {
+    score += tokens.length;
+  }
+
+  return score;
+}
+
 function graphExpandForChunk(chunkId: string) {
   switch (chunkId) {
     case 'sub-101':
@@ -293,7 +320,7 @@ export const handlers = [
   http.get(`${base}/search`, async ({ request }) => {
     await delay(450);
     const url = new URL(request.url);
-    const q = (url.searchParams.get('q') || '').toLowerCase().trim();
+    const q = (url.searchParams.get('q') || '').trim();
 
     if (!q) {
       return HttpResponse.json({
@@ -302,19 +329,40 @@ export const handlers = [
       });
     }
 
-    const filtered = searchResults
+    const tokens = tokenizeQuery(q);
+    const chunkCandidates = searchResults
       .map((item) => ({
         item,
-        score: `${item.title} ${item.snippet} ${item.attributedAuthority}`.toLowerCase().includes(q)
-          ? item.attributedAuthority.includes('Aster')
-            ? 20
-            : item.attributedAuthority.includes('Rex')
-              ? 5
-              : 1
-          : 0
+        score: textScore(`${item.title} ${item.snippet} ${item.attributedAuthority}`, tokens) + (item.attributedAuthority.includes('Aster') ? 2 : 0)
       }))
-      .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score)
+      .filter((entry) => entry.score > 0);
+
+    const topicCandidates = graphTopics
+      .map((topic) => ({
+        item: {
+          id: topic.id,
+          title: topic.title,
+          snippet: topic.summary,
+          sourceType: 'topic',
+          attributedAuthority: '',
+          kind: 'topic' as const
+        },
+        score: textScore(`${topic.title} ${topic.summary}`, tokens) + 5
+      }))
+      .filter((entry) => entry.score > 0);
+
+    const filtered = [...topicCandidates, ...chunkCandidates]
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+
+        if (a.item.kind !== b.item.kind) {
+          return a.item.kind === 'topic' ? -1 : 1;
+        }
+
+        return a.item.title.localeCompare(b.item.title);
+      })
       .map((entry) => entry.item);
 
     return HttpResponse.json({

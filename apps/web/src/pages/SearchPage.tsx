@@ -68,12 +68,19 @@ export function SearchPage() {
             <h3 className="text-lg font-semibold text-white">{item.title}</h3>
             <p className="mt-2 text-sm text-muted">{item.snippet}</p>
             <p className="mt-2 text-sm text-muted">
-              Source: {item.sourceType} | Attributed authority: {item.attributedAuthority}
+              Source: {item.kind === 'topic' ? 'topic' : item.sourceType} | Attributed authority:{' '}
+              {item.attributedAuthority || 'N/A'}
             </p>
             <div className="mt-4 flex gap-3">
-              <Link className="btn-secondary" to={`/submissions/${item.id}`}>
-                Open source detail
-              </Link>
+              {item.kind === 'topic' ? (
+                <Link className="btn-secondary" to="/graph">
+                  Open graph explorer
+                </Link>
+              ) : (
+                <Link className="btn-secondary" to={`/submissions/${item.id}`}>
+                  Open source detail
+                </Link>
+              )}
               <Link className="btn-secondary" to="/features/semantic-search">
                 Semantic behavior notes
               </Link>

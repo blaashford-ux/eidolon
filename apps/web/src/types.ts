@@ -19,6 +19,7 @@ export interface SearchResult {
   snippet: string;
   sourceType: string;
   attributedAuthority: string;
+  kind?: 'chunk' | 'topic';
 }
 
 export interface ModerationItem {
