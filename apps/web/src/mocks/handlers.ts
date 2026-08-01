@@ -165,7 +165,7 @@ export const handlers = [
     await delay(250);
     return HttpResponse.json({
       graph: true,
-      semanticSearch: false,
+      semanticSearch: true,
       moderationAutomation: false,
       synthesis: false
     });
@@ -302,12 +302,23 @@ export const handlers = [
       });
     }
 
-    const filtered = searchResults.filter((item) =>
-      `${item.title} ${item.snippet} ${item.attributedAuthority}`.toLowerCase().includes(q)
-    );
+    const filtered = searchResults
+      .map((item) => ({
+        item,
+        score: `${item.title} ${item.snippet} ${item.attributedAuthority}`.toLowerCase().includes(q)
+          ? item.attributedAuthority.includes('Aster')
+            ? 20
+            : item.attributedAuthority.includes('Rex')
+              ? 5
+              : 1
+          : 0
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.item);
 
     return HttpResponse.json({
-      mode: 'baseline',
+      mode: 'semantic',
       results: filtered
     });
   }),

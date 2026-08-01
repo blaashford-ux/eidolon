@@ -4,8 +4,8 @@ import { FeaturePlaceholder } from '../components/FeaturePlaceholder';
 
 const map: Record<string, { title: string; summary: string }> = {
   'semantic-search': {
-    title: 'Semantic search is not wired yet',
-    summary: 'Phase 2 keeps retrieval in baseline mode. Semantic ranking arrives in Phase 4 with Vectorize embeddings.'
+    title: 'Semantic retrieval behavior',
+    summary: 'Phase 4 uses Workers AI embeddings and Vectorize when available, then falls back to baseline retrieval if semantic services fail.'
   },
   'semantic-ranking': {
     title: 'Result ranking preview',

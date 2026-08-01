@@ -127,6 +127,18 @@ const endorsementSeed = [
 ] as const;
 
 let phase2Ready: Promise<void> | null = null;
+let phase4Ready: Promise<void> | null = null;
+
+const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
+const SUMMARY_MODEL = '@cf/facebook/bart-large-cnn';
+const PHASE4_EMBEDDING_NAMESPACE = 'knowledge-chunks';
+
+type Phase4Services = {
+  AI?: Ai;
+  VECTORIZE?: VectorizeIndex;
+  semanticEnabled?: boolean;
+  enrichmentEnabled?: boolean;
+};
 
 function slugify(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '') || 'user';
@@ -138,6 +150,81 @@ function prefixedId(prefix: string, value: number | string): string {
 
 function splitCsv(value: string | null): string[] {
   return value ? value.split(',').map((part) => part.trim()).filter(Boolean) : [];
+}
+
+function isEnabled(value: string | undefined, fallback = true): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function authorityWeight(level: string | null): number {
+  if (level === 'Veteran') {
+    return 20;
+  }
+  if (level === 'Practitioner') {
+    return 5;
+  }
+  if (level === 'Novice') {
+    return 1;
+  }
+  return 1;
+}
+
+function toVectorId(nodeId: number): string {
+  return `node-${nodeId}`;
+}
+
+function parseVectorNodeId(value: string): number | null {
+  const match = value.match(/^node-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1] ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function inferTagsFromText(title: string, content: string): string[] {
+  const text = `${title} ${content}`.toLowerCase();
+  const inferred = new Set<string>();
+
+  for (const topic of seedGraphTopics) {
+    const normalized = topic.title.toLowerCase();
+    if (text.includes(normalized)) {
+      inferred.add(topic.title);
+    }
+  }
+
+  const keywords = ['pacing', 'reader', 'series', 'rapid', 'release', 'marketing', 'blurb', 'cover', 'genre'];
+  for (const keyword of keywords) {
+    if (text.includes(keyword)) {
+      const label = keyword
+        .split(' ')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+      inferred.add(label);
+    }
+  }
+
+  return [...inferred].slice(0, 8);
+}
+
+function bestEffortSummary(content: string): string {
+  const trimmed = content.trim();
+  if (trimmed.length <= 220) {
+    return trimmed;
+  }
+
+  const breakpoint = trimmed.slice(0, 220).lastIndexOf(' ');
+  if (breakpoint > 80) {
+    return `${trimmed.slice(0, breakpoint)}...`;
+  }
+
+  return `${trimmed.slice(0, 220)}...`;
 }
 
 async function tableHasColumn(db: D1Database, table: string, column: string): Promise<boolean> {
@@ -291,10 +378,177 @@ export async function ensurePhase2Data(db: D1Database): Promise<void> {
   await phase2Ready;
 }
 
-export async function getCapabilities() {
+async function generateEmbedding(ai: Ai | undefined, text: string): Promise<number[] | null> {
+  if (!ai) {
+    return null;
+  }
+
+  const response = (await ai.run(EMBEDDING_MODEL, { text: [text] })) as {
+    data?: number[][];
+    shape?: number[];
+  };
+
+  const vector = response.data?.[0];
+  return Array.isArray(vector) ? vector : null;
+}
+
+async function generateSummary(ai: Ai | undefined, content: string): Promise<string> {
+  if (!ai) {
+    return bestEffortSummary(content);
+  }
+
+  try {
+    const response = (await ai.run(SUMMARY_MODEL, {
+      input_text: content,
+      max_length: 140
+    })) as { summary?: string };
+    if (response.summary && response.summary.trim().length > 0) {
+      return response.summary.trim();
+    }
+  } catch (error) {
+    console.warn('Summary generation fallback:', error);
+  }
+
+  return bestEffortSummary(content);
+}
+
+async function upsertNodeTags(db: D1Database, nodeId: number, tags: string[]): Promise<void> {
+  for (const tagName of tags) {
+    const normalized = tagName.trim();
+    if (!normalized) {
+      continue;
+    }
+
+    const tagId = await ensureTagId(db, normalized);
+    await db.prepare('INSERT OR IGNORE INTO node_tags (node_id, tag_id) VALUES (?, ?)').bind(nodeId, tagId).run();
+  }
+}
+
+async function upsertSuggestedRelationships(db: D1Database, nodeId: number): Promise<void> {
+  const related = await db
+    .prepare(
+      `SELECT nt2.node_id AS relatedNodeId, COUNT(*) AS overlap
+      FROM node_tags nt1
+      JOIN node_tags nt2 ON nt2.tag_id = nt1.tag_id
+      WHERE nt1.node_id = ? AND nt2.node_id != ?
+      GROUP BY nt2.node_id
+      HAVING overlap > 0
+      ORDER BY overlap DESC, nt2.node_id ASC
+      LIMIT 5`
+    )
+    .bind(nodeId, nodeId)
+    .all<{ relatedNodeId: number; overlap: number }>();
+
+  for (const row of related.results) {
+    await db
+      .prepare(
+        `INSERT INTO relationships (source_node_id, target_node_id, relationship_type, strength)
+         SELECT ?, ?, 'RELATED', ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM relationships
+           WHERE source_node_id = ? AND target_node_id = ? AND relationship_type = 'RELATED'
+         )`
+      )
+      .bind(nodeId, row.relatedNodeId, row.overlap, nodeId, row.relatedNodeId)
+      .run();
+  }
+}
+
+async function upsertVectorRecord(db: D1Database, services: Phase4Services, nodeId: number, embedding: number[]): Promise<void> {
+  const vectorId = toVectorId(nodeId);
+  const vectorize = services.VECTORIZE;
+
+  if (vectorize) {
+    await vectorize.upsert([
+      {
+        id: vectorId,
+        namespace: PHASE4_EMBEDDING_NAMESPACE,
+        values: embedding,
+        metadata: {
+          nodeId,
+          nodeType: 'KNOWLEDGE_CHUNK'
+        }
+      }
+    ]);
+  }
+
+  await db
+    .prepare('INSERT OR REPLACE INTO node_embeddings (node_id, embedding_reference) VALUES (?, ?)')
+    .bind(nodeId, vectorId)
+    .run();
+}
+
+async function enrichAndIndexChunk(db: D1Database, services: Phase4Services, nodeId: number): Promise<void> {
+  const row = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        n.summary AS summary,
+        k.content AS content
+      FROM nodes n
+      JOIN knowledge_chunks k ON k.node_id = n.id
+      WHERE n.id = ?`
+    )
+    .bind(nodeId)
+    .first<{ nodeId: number; title: string; summary: string | null; content: string }>();
+
+  if (!row) {
+    return;
+  }
+
+  const shouldEnrich = services.enrichmentEnabled !== false;
+  const ai = services.AI;
+
+  if (shouldEnrich) {
+    const summary = await generateSummary(ai, row.content);
+    await db.prepare('UPDATE nodes SET summary = ?, updated_at = (unixepoch() * 1000) WHERE id = ?').bind(summary, row.nodeId).run();
+
+    const inferredTags = inferTagsFromText(row.title, `${row.content} ${summary}`);
+    await upsertNodeTags(db, row.nodeId, inferredTags);
+    await upsertSuggestedRelationships(db, row.nodeId);
+  }
+
+  const embedding = await generateEmbedding(ai, `${row.title}\n\n${row.content}`);
+  if (embedding && embedding.length > 0) {
+    await upsertVectorRecord(db, services, row.nodeId, embedding);
+  }
+}
+
+export async function ensurePhase4Data(db: D1Database, services: Phase4Services): Promise<void> {
+  const shouldRun = services.semanticEnabled !== false || services.enrichmentEnabled !== false;
+  if (!shouldRun) {
+    return;
+  }
+
+  phase4Ready ??= (async () => {
+    const rows = await db
+      .prepare(
+        `SELECT n.id AS nodeId
+         FROM nodes n
+         JOIN knowledge_chunks k ON k.node_id = n.id
+         ORDER BY n.id ASC`
+      )
+      .all<{ nodeId: number }>();
+
+    for (const row of rows.results) {
+      try {
+        await enrichAndIndexChunk(db, services, row.nodeId);
+      } catch (error) {
+        console.warn(`Phase 4 enrichment skipped for node ${row.nodeId}:`, error);
+      }
+    }
+  })();
+
+  await phase4Ready;
+}
+
+export async function getCapabilities(env?: Partial<Env>) {
+  const semanticEnabled = isEnabled(env?.SEMANTIC_SEARCH_ENABLED, true);
+
   return {
     graph: true,
-    semanticSearch: false,
+    semanticSearch: semanticEnabled,
     moderationAutomation: false,
     synthesis: false
   };
@@ -658,7 +912,8 @@ export async function createSubmission(
     sourceUrl?: string;
     contributor: string;
     attributedAuthority: string;
-  }
+  },
+  services?: Phase4Services
 ) {
   const nodeTypeId = await getNodeTypeId(db, 'KNOWLEDGE_CHUNK');
   const contributorUserId = await getOrCreateUserId(db, payload.contributor);
@@ -683,6 +938,14 @@ export async function createSubmission(
     )
     .bind(nodeId, payload.content, payload.sourceType, payload.sourceUrl || null, contributorUserId, authority.nodeId)
     .run();
+
+  if (services) {
+    try {
+      await enrichAndIndexChunk(db, services, nodeId);
+    } catch (error) {
+      console.warn(`Submission enrichment fallback for node ${nodeId}:`, error);
+    }
+  }
 
   return getSubmission(db, prefixedId('sub', nodeId));
 }
@@ -854,6 +1117,153 @@ export async function searchBaseline(db: D1Database, query: string, page: number
       total: countQuery?.total || 0
     }
   };
+}
+
+async function searchSemantic(
+  db: D1Database,
+  services: Phase4Services,
+  query: string,
+  page: number,
+  pageSize: number
+) {
+  const vectorize = services.VECTORIZE;
+  const ai = services.AI;
+
+  if (!vectorize || !ai) {
+    return null;
+  }
+
+  const embedding = await generateEmbedding(ai, query);
+  if (!embedding || embedding.length === 0) {
+    return null;
+  }
+
+  const topK = Math.min(Math.max(pageSize * 4, 12), 48);
+  const matches = await vectorize.query(embedding, {
+    topK,
+    namespace: PHASE4_EMBEDDING_NAMESPACE,
+    returnMetadata: 'indexed'
+  });
+
+  const rankedIds: number[] = [];
+  const scoreByNode = new Map<number, number>();
+
+  for (const match of matches.matches) {
+    const parsedId = parseVectorNodeId(match.id);
+    if (!parsedId) {
+      continue;
+    }
+
+    if (!scoreByNode.has(parsedId)) {
+      rankedIds.push(parsedId);
+    }
+
+    scoreByNode.set(parsedId, match.score);
+  }
+
+  if (rankedIds.length === 0) {
+    return {
+      mode: 'semantic' as const,
+      results: [] as Array<{ id: string; title: string; snippet: string; sourceType: string; attributedAuthority: string }>,
+      pagination: {
+        page,
+        pageSize,
+        total: 0
+      }
+    };
+  }
+
+  const placeholders = rankedIds.map(() => '?').join(', ');
+  const rows = await db
+    .prepare(
+      `SELECT
+        n.id AS nodeId,
+        n.title AS title,
+        COALESCE(n.summary, substr(k.content, 1, 180)) AS snippet,
+        k.source_type AS sourceType,
+        COALESCE(ap.display_name, 'Unattributed') AS attributedAuthority,
+        COALESCE(ap.authority_level, 'Novice') AS authorityLevel
+      FROM nodes n
+      JOIN knowledge_chunks k ON k.node_id = n.id
+      LEFT JOIN authority_profiles ap ON ap.node_id = k.attributed_authority_profile_node_id
+      WHERE n.id IN (${placeholders})`
+    )
+    .bind(...rankedIds)
+    .all<{
+      nodeId: number;
+      title: string;
+      snippet: string;
+      sourceType: string;
+      attributedAuthority: string;
+      authorityLevel: string;
+    }>();
+
+  const rank = new Map<number, number>();
+  rankedIds.forEach((id, index) => rank.set(id, index));
+
+  const ordered = rows.results
+    .map((row) => {
+      const rawScore = scoreByNode.get(row.nodeId) || 0;
+      const weighted = rawScore * authorityWeight(row.authorityLevel);
+      return {
+        ...row,
+        weighted,
+        semanticRank: rank.get(row.nodeId) ?? Number.MAX_SAFE_INTEGER
+      };
+    })
+    .sort((a, b) => {
+      if (b.weighted !== a.weighted) {
+        return b.weighted - a.weighted;
+      }
+
+      return a.semanticRank - b.semanticRank;
+    });
+
+  const total = ordered.length;
+  const offset = (page - 1) * pageSize;
+  const paged = ordered.slice(offset, offset + pageSize);
+
+  return {
+    mode: 'semantic' as const,
+    results: paged.map((row) => ({
+      id: prefixedId('sub', row.nodeId),
+      title: row.title,
+      snippet: row.snippet,
+      sourceType: row.sourceType,
+      attributedAuthority: row.attributedAuthority
+    })),
+    pagination: {
+      page,
+      pageSize,
+      total
+    }
+  };
+}
+
+export async function searchWithFallback(
+  db: D1Database,
+  query: string,
+  page: number,
+  pageSize: number,
+  services: Phase4Services
+) {
+  const semanticEnabled = services.semanticEnabled !== false;
+  const trimmed = query.trim();
+
+  if (!semanticEnabled || trimmed.length === 0) {
+    return searchBaseline(db, query, page, pageSize);
+  }
+
+  try {
+    const semantic = await searchSemantic(db, services, trimmed, page, pageSize);
+    if (semantic) {
+      return semantic;
+    }
+  } catch (error) {
+    console.warn('Semantic search fallback:', error);
+  }
+
+  return searchBaseline(db, query, page, pageSize);
 }
 
 export function getModerationQueue() {

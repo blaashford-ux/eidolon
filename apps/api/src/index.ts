@@ -5,6 +5,7 @@ import {
   claimAuthorityProfile,
   createSubmission,
   ensurePhase2Data,
+  ensurePhase4Data,
   getCapabilities,
   getEndorsements,
   getModerationQueue,
@@ -14,7 +15,7 @@ import {
   listGraphTopics,
   listAuthorityProfiles,
   listSubmissions,
-  searchBaseline
+  searchWithFallback
 } from './phase2';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -87,7 +88,7 @@ app.get('/api/info', (c) =>
 
 app.get('/api/capabilities', async (c) => {
   await ensurePhase2Data(c.env.DB);
-  return c.json(await getCapabilities());
+  return c.json(await getCapabilities(c.env));
 });
 
 app.get('/api/authority/profiles', async (c) => {
@@ -147,7 +148,12 @@ app.post('/api/submissions', async (c) => {
   }
 
   try {
-    const submission = await createSubmission(c.env.DB, parsed.data);
+    const submission = await createSubmission(c.env.DB, parsed.data, {
+      AI: c.env.AI,
+      VECTORIZE: c.env.VECTORIZE,
+      semanticEnabled: c.env.SEMANTIC_SEARCH_ENABLED === undefined ? true : c.env.SEMANTIC_SEARCH_ENABLED === 'true',
+      enrichmentEnabled: c.env.AI_ENRICHMENT_ENABLED === undefined ? true : c.env.AI_ENRICHMENT_ENABLED === 'true'
+    });
     return c.json(submission, 201);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : 'Failed to create submission.');
@@ -156,10 +162,24 @@ app.post('/api/submissions', async (c) => {
 
 app.get('/api/search', async (c) => {
   await ensurePhase2Data(c.env.DB);
+  await ensurePhase4Data(c.env.DB, {
+    AI: c.env.AI,
+    VECTORIZE: c.env.VECTORIZE,
+    semanticEnabled: c.env.SEMANTIC_SEARCH_ENABLED === undefined ? true : c.env.SEMANTIC_SEARCH_ENABLED === 'true',
+    enrichmentEnabled: c.env.AI_ENRICHMENT_ENABLED === undefined ? true : c.env.AI_ENRICHMENT_ENABLED === 'true'
+  });
+
   const query = c.req.query('q') || '';
   const page = parsePage(c.req.query('page'), 1);
   const pageSize = Math.min(parsePage(c.req.query('pageSize'), 10), 50);
-  return c.json(await searchBaseline(c.env.DB, query, page, pageSize));
+  return c.json(
+    await searchWithFallback(c.env.DB, query, page, pageSize, {
+      AI: c.env.AI,
+      VECTORIZE: c.env.VECTORIZE,
+      semanticEnabled: c.env.SEMANTIC_SEARCH_ENABLED === undefined ? true : c.env.SEMANTIC_SEARCH_ENABLED === 'true',
+      enrichmentEnabled: c.env.AI_ENRICHMENT_ENABLED === undefined ? true : c.env.AI_ENRICHMENT_ENABLED === 'true'
+    })
+  );
 });
 
 app.get('/api/graph/topics', async (c) => {

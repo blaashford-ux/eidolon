@@ -8,7 +8,9 @@
   ],
   "vars": {
     "APP_ENV": "production",
-    "FRONTEND_ORIGIN": "https://eidolon.embre.net"
+    "FRONTEND_ORIGIN": "https://eidolon.embre.net",
+    "SEMANTIC_SEARCH_ENABLED": "true",
+    "AI_ENRICHMENT_ENABLED": "true"
   },
   "routes": [
     {

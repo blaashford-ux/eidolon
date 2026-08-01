@@ -6,6 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 APP_ENV = "production"
 FRONTEND_ORIGIN = "https://eidolon.embre.net"
+SEMANTIC_SEARCH_ENABLED = "true"
+AI_ENRICHMENT_ENABLED = "true"
 
 [[routes]]
 pattern = "api.eidolon.embre.net"

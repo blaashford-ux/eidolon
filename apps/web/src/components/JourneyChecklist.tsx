@@ -54,7 +54,7 @@ export function JourneyChecklist() {
   return (
     <article className="panel">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-white">Phase 3 journey checklist</h3>
+        <h3 className="text-lg font-semibold text-white">Phase 4 journey checklist</h3>
         <span className="status-chip">
           {completion.done}/{completion.total} complete
         </span>

@@ -37,7 +37,7 @@ export function SearchPage() {
     <section className="grid gap-4">
       <article className="panel">
         <h2 className="panel-title">Reader search</h2>
-        <p className="panel-copy">Mode: {mode}. Semantic ranking remains in preview until Phase 4.</p>
+        <p className="panel-copy">Mode: {mode}. Semantic retrieval is enabled with automatic fallback to baseline search.</p>
 
         <form className="mt-4 flex gap-3" onSubmit={onSubmit}>
           <input
@@ -75,7 +75,7 @@ export function SearchPage() {
                 Open source detail
               </Link>
               <Link className="btn-secondary" to="/features/semantic-search">
-                Semantic preview
+                Semantic behavior notes
               </Link>
             </div>
           </article>
